@@ -683,6 +683,18 @@ export class LiveQuery extends TxProcessor implements Client {
     }
   }
 
+  private triggerRefresh (q: Query): void {
+    const r: Promise<FindResult<Doc>> | FindResult<Doc> = this.client.findAll(q._class, q.query, q.options)
+    q.result = r
+    void r.then(async (qr) => {
+      const oldResult = q.result
+      if (!deepEqual(qr, oldResult) || (qr.total !== q.total && q.options?.total === true)) {
+        q.total = qr.total
+        await this.callback(q)
+      }
+    })
+  }
+
   // Check if query is partially matched.
   private async matchQuery (q: Query, tx: TxUpdateDoc<Doc>, docCache?: Map<string, Doc>): Promise<boolean> {
     const clazz = this.getHierarchy().isMixin(q._class) ? this.getHierarchy().getBaseClass(q._class) : q._class
@@ -1058,22 +1070,26 @@ export class LiveQuery extends TxProcessor implements Client {
 
   async tx (tx: Tx): Promise<TxResult> {
     if (tx._class === core.class.TxWorkspaceEvent) {
-      await this.checkUpdateFulltextQueries(tx)
+      await this.checkUpdateEvents(tx)
       await this.changePrivateHandler(tx)
       return {}
     }
     return await super.tx(tx)
   }
 
-  private async checkUpdateFulltextQueries (tx: Tx): Promise<void> {
+  private async checkUpdateEvents (tx: Tx): Promise<void> {
     const evt = tx as TxWorkspaceEvent
+    const h = this.client.getHierarchy()
+    function hasClass (q: Query, classes: Ref<Class<Doc>>[]): boolean {
+      return classes.includes(q._class) || classes.some((it) => h.isDerived(q._class, it) || h.isDerived(it, q._class))
+    }
     if (evt.event === WorkspaceEvent.IndexingUpdate) {
       const indexingParam = evt.params as IndexingUpdateEvent
       for (const q of [...this.queue]) {
-        if (indexingParam._class.includes(q._class) && q.query.$search !== undefined) {
+        if (hasClass(q, indexingParam._class) && q.query.$search !== undefined) {
           if (!this.removeFromQueue(q)) {
             try {
-              await this.refresh(q)
+              this.triggerRefresh(q)
             } catch (err) {
               console.error(err)
             }
@@ -1082,9 +1098,9 @@ export class LiveQuery extends TxProcessor implements Client {
       }
       for (const v of this.queries.values()) {
         for (const q of v) {
-          if (indexingParam._class.includes(q._class) && q.query.$search !== undefined) {
+          if (hasClass(q, indexingParam._class) && q.query.$search !== undefined) {
             try {
-              await this.refresh(q)
+              this.triggerRefresh(q)
             } catch (err) {
               console.error(err)
             }
@@ -1095,10 +1111,10 @@ export class LiveQuery extends TxProcessor implements Client {
     if (evt.event === WorkspaceEvent.BulkUpdate) {
       const params = evt.params as BulkUpdateEvent
       for (const q of [...this.queue]) {
-        if (params._class.includes(q._class)) {
+        if (hasClass(q, params._class)) {
           if (!this.removeFromQueue(q)) {
             try {
-              await this.refresh(q)
+              this.triggerRefresh(q)
             } catch (err) {
               console.error(err)
             }
@@ -1107,9 +1123,9 @@ export class LiveQuery extends TxProcessor implements Client {
       }
       for (const v of this.queries.values()) {
         for (const q of v) {
-          if (params._class.includes(q._class)) {
+          if (hasClass(q, params._class)) {
             try {
-              await this.refresh(q)
+              this.triggerRefresh(q)
             } catch (err) {
               console.error(err)
             }

@@ -140,6 +140,11 @@ export interface TxApplyIf extends Tx {
   extraNotify?: Ref<Class<Doc>>[]
 }
 
+export interface TxApplyResult {
+  success: boolean
+  derived: Tx[] // Some derived transactions to handle.
+}
+
 /**
  * @public
  */
@@ -318,14 +323,14 @@ export const DOMAIN_TX = 'tx' as Domain
  * @public
  */
 export interface WithTx {
-  tx: (...txs: Tx[]) => Promise<TxResult>
+  tx: (...txs: Tx[]) => Promise<TxResult[]>
 }
 
 /**
  * @public
  */
 export abstract class TxProcessor implements WithTx {
-  async tx (...txes: Tx[]): Promise<TxResult> {
+  async tx (...txes: Tx[]): Promise<TxResult[]> {
     const result: TxResult[] = []
     for (const tx of txes) {
       switch (tx._class) {
@@ -348,12 +353,6 @@ export abstract class TxProcessor implements WithTx {
           // Apply if processed on server
           return await Promise.resolve({})
       }
-    }
-    if (result.length === 0) {
-      return {}
-    }
-    if (result.length === 1) {
-      return result[0]
     }
     return result
   }

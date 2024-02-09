@@ -160,7 +160,6 @@
     margin-top: 0.25rem;
     font-size: 0.75rem;
   }
-
   .separator {
     margin: 1rem 0;
     height: 1px;
